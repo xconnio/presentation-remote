@@ -3,6 +3,7 @@ package org.deskconn.presentationremote;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.util.Consumer;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
@@ -28,7 +29,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        mDeskConn = new DeskConn(getApplicationContext());
+        mDeskConn = ((AppGlobals) getApplication()).getDeskConn();
         mServices = new HashMap<>();
     }
 
@@ -36,6 +37,13 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         ensurePermissions();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        mDeskConn.stopDiscovery();
+        cleanup();
     }
 
     private void ensurePermissions() {
@@ -61,8 +69,14 @@ public class MainActivity extends AppCompatActivity {
         mDeskConn.startDiscovery();
     }
 
+    private void cleanup() {
+        mDeskConn.removeOnServiceFoundListener(this::onServiceFound);
+        mDeskConn.removeOnServiceLostListener(this::onServiceLost);
+    }
+
     private void onServiceFound(Service service) {
         Log.i(TAG, "onServiceFound: Found service " + service.getHostName());
+        Log.i(TAG, "onServiceFound: " + service.getSystemUID());
         mServices.put(service.getHostIP(), service);
     }
 

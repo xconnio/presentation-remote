@@ -127,7 +127,7 @@ public class DeskConn {
         mOnServiceFoundListeners.add(callback);
     }
 
-    public void removeOnServiceFoundListner(Consumer<Service> callback) {
+    public void removeOnServiceFoundListener(Consumer<Service> callback) {
         mOnServiceFoundListeners.remove(callback);
     }
 
