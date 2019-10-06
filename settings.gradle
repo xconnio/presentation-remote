@@ -1,0 +1,2 @@
+include ':app', ':deskconn-utils'
+rootProject.name='DeskConn Presentation Remote'
