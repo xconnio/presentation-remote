@@ -96,6 +96,13 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     @Override
     public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
         Service service = mAvailableServices.get(i);
-        mDeskConn.isPaired(service).thenAccept(System.out::println);
+        mDeskConn.isPaired(service).thenAccept(paired -> {
+            if (paired) {
+                mDeskConn.connect(service);
+            } else {
+                // FIXME: Show a dialog to put the pairing code ==> runOnUiThread()
+                // FIXME: Once we have the code call mDeskConn.pair()
+            }
+        });
     }
 }
