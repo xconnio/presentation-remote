@@ -12,7 +12,6 @@ public class AppGlobals extends Application {
     public void onCreate() {
         super.onCreate();
         mDeskConn = new DeskConn(getApplicationContext());
-        mDeskConn.startDiscovery();
     }
 
     public DeskConn getDeskConn() {

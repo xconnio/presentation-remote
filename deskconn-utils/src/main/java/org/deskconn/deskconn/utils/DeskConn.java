@@ -15,6 +15,7 @@ import androidx.room.Room;
 
 import org.deskconn.deskconn.utils.database.AppDatabase;
 import org.deskconn.deskconn.utils.database.Service;
+import org.deskconn.deskconn.utils.database.ServiceDao;
 import org.libsodium.jni.keys.SigningKey;
 
 import java.io.IOException;
@@ -26,7 +27,6 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Consumer;
 
 import javax.jmdns.JmDNS;
 import javax.jmdns.ServiceEvent;
@@ -43,10 +43,10 @@ public class DeskConn {
     private static final String TAG = DeskConn.class.getName();
     private static final String SERVICE_NAME = "_deskconn._tcp.local.";
 
-    private final List<Consumer<Session>> mOnConnectListeners;
-    private final List<Runnable> mOnDisconnectListeners;
-    private final List<Consumer<Service>> mOnServiceFoundListeners;
-    private final List<Consumer<String>> mOnServiceLostListeners;
+    private final List<OnConnectListener> mOnConnectListeners;
+    private final List<OnDisconnectListener> mOnDisconnectListeners;
+    private final List<OnServiceFoundListener> mOnServiceFoundListeners;
+    private final List<OnServiceLostListener> mOnServiceLostListeners;
 
     private Context mContext;
     private Session mWAMP;
@@ -54,7 +54,7 @@ public class DeskConn {
     private ExecutorService mExecutor;
     private String mWiFiIP;
     private Helpers mHelpers;
-    private AppDatabase mDB;
+    private ServiceDao mServiceDao;
 
     public DeskConn(Context context) {
         mContext = context;
@@ -64,8 +64,60 @@ public class DeskConn {
         mOnServiceLostListeners = new ArrayList<>();
         mExecutor = Executors.newSingleThreadExecutor();
         mHelpers = new Helpers(mContext);
-        mDB = Room.databaseBuilder(context, AppDatabase.class, "services").build();
+        AppDatabase db = Room.databaseBuilder(context, AppDatabase.class, "services").build();
+        mServiceDao = db.servicesDao();
         ensureKeyPair();
+    }
+
+    public interface OnConnectListener {
+        void onConnect(Session session);
+    }
+
+    public interface OnDisconnectListener {
+        void onDisconnect();
+    }
+
+    public interface OnServiceFoundListener {
+        void onFound(Service service);
+    }
+
+    public interface OnServiceLostListener {
+        void onLost(String hostIP);
+    }
+
+    public void addOnConnectListener(OnConnectListener listener) {
+        mOnConnectListeners.add(listener);
+        if (isConnected()) {
+            listener.onConnect(mWAMP);
+        }
+    }
+
+    public void removeOnConnectListener(OnConnectListener listener) {
+        mOnConnectListeners.remove(listener);
+    }
+
+    public void addOnDisconnectListener(OnDisconnectListener listener) {
+        mOnDisconnectListeners.add(listener);
+    }
+
+    public void removeOnDisconnectListener(OnDisconnectListener listener) {
+        mOnDisconnectListeners.remove(listener);
+    }
+
+    public void addOnServiceFoundListener(OnServiceFoundListener listener) {
+        mOnServiceFoundListeners.add(listener);
+    }
+
+    public void removeOnServiceFoundListener(OnServiceFoundListener listener) {
+        mOnServiceFoundListeners.remove(listener);
+    }
+
+    public void addOnServiceLostListener(OnServiceLostListener listener) {
+        mOnServiceLostListeners.add(listener);
+    }
+
+    public void removeOnServiceLostListener(OnServiceLostListener listener) {
+        mOnServiceLostListeners.remove(listener);
     }
 
     private void ensureKeyPair() {
@@ -104,39 +156,23 @@ public class DeskConn {
         return mWiFiIP != null;
     }
 
-    public void addOnConnectListener(Consumer<Session> callback) {
-        mOnConnectListeners.add(callback);
-        if (isConnected()) {
-            callback.accept(mWAMP);
+    public boolean isWiFiEnabled() {
+        WifiManager wifimanager = mContext.getSystemService(WifiManager.class);
+        if (wifimanager == null) {
+            return false;
         }
+        return wifimanager.isWifiEnabled();
     }
 
-    public void removeOnConnectListener(Consumer<Session> method) {
-        mOnConnectListeners.remove(method);
-    }
-
-    public void addOnDisconnectListener(Runnable method) {
-        mOnDisconnectListeners.add(method);
-    }
-
-    public void removeOnDisconnectListener(Runnable method) {
-        mOnDisconnectListeners.remove(method);
-    }
-
-    public void addOnServiceFoundListener(Consumer<Service> callback) {
-        mOnServiceFoundListeners.add(callback);
-    }
-
-    public void removeOnServiceFoundListener(Consumer<Service> callback) {
-        mOnServiceFoundListeners.remove(callback);
-    }
-
-    public void addOnServiceLostListener(Consumer<String> callback) {
-        mOnServiceLostListeners.add(callback);
-    }
-
-    public void removeOnServiceLostListener(Consumer<String> callback) {
-        mOnServiceLostListeners.remove(callback);
+    private String getNetworkIP(Network network) {
+        ConnectivityManager cm = mContext.getSystemService(ConnectivityManager.class);
+        List<LinkAddress> addresses = cm.getLinkProperties(network).getLinkAddresses();
+        for (LinkAddress linkAddress: addresses) {
+            if (linkAddress.getAddress() instanceof Inet4Address) {
+                return linkAddress.getAddress().getHostName();
+            }
+        }
+        return null;
     }
 
     public void startDiscovery() {
@@ -156,7 +192,7 @@ public class DeskConn {
                     public void serviceRemoved(ServiceEvent event) {
                         try {
                             String host = event.getDNS().getInetAddress().getHostAddress();
-                            mOnServiceLostListeners.forEach(consumer -> consumer.accept(host));
+                            mOnServiceLostListeners.forEach(listener -> listener.onLost(host));
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
@@ -170,7 +206,7 @@ public class DeskConn {
                             Service service = new Service(event.getName(), host,
                                     info.getPropertyString("realm"), info.getPort(),
                                     info.getPropertyString("uid"));
-                            mOnServiceFoundListeners.forEach(consumer -> consumer.accept(service));
+                            mOnServiceFoundListeners.forEach(listener -> listener.onFound(service));
                         } catch (IOException e) {
                             e.printStackTrace();
                         }
@@ -192,27 +228,43 @@ public class DeskConn {
         }
     }
 
-    private String getNetworkIP(Network network) {
-        ConnectivityManager cm = mContext.getSystemService(ConnectivityManager.class);
-        List<LinkAddress> addresses = cm.getLinkProperties(network).getLinkAddresses();
-        for (LinkAddress linkAddress: addresses) {
-            if (linkAddress.getAddress() instanceof Inet4Address) {
-                return linkAddress.getAddress().getHostName();
+    public CompletableFuture<Boolean> pair(Service service, String otp) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        Helpers.KeyPair keyPair = mHelpers.getKeyPair();
+
+        CompletableFuture<CallResult> callFuture = mWAMP.call("org.deskconn.pairing.pair", otp,
+                keyPair.getPublicKey());
+        callFuture.thenAccept(callResult -> {
+            mServiceDao.insertAll(service);
+            future.complete(true);
+        });
+        callFuture.exceptionally(throwable -> {
+            future.complete(false);
+            Log.e(TAG, "pair: ", throwable);
+            return null;
+        });
+        return future;
+    }
+
+    public CompletableFuture<Boolean> isPaired(Service service) {
+        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        mExecutor.submit(() -> {
+            Service pairedService = mServiceDao.findBySystemUID(service.getSystemUID());
+            if (pairedService == null) {
+                future.complete(false);
+            } else {
+                future.complete(true);
             }
-        }
-        return null;
+        });
+        return future;
     }
 
-    public boolean isWiFiEnabled() {
-        WifiManager wifimanager = mContext.getSystemService(WifiManager.class);
-        if (wifimanager == null) {
-            return false;
-        }
-        return wifimanager.isWifiEnabled();
-    }
-
-    public boolean isPaired(String uid) {
-        return mDB.servicesDao().findBySystemUID(uid) != null;
+    public CompletableFuture<List<Service>> getPairedServices() {
+        CompletableFuture<List<Service>> future = new CompletableFuture<>();
+        mExecutor.submit(() -> {
+            future.complete(mServiceDao.getAll());
+        });
+        return future;
     }
 
     public synchronized void disconnect() {
@@ -221,32 +273,10 @@ public class DeskConn {
         }
     }
 
-    public boolean isConnected() {
-        return mWAMP != null && mWAMP.isConnected();
-    }
-
-    public CompletableFuture<Boolean> pair(String otp) {
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        Helpers.KeyPair keyPair = mHelpers.getKeyPair();
-
-        CompletableFuture<CallResult> call = mWAMP.call("org.deskconn.pairing.pair", otp,
-                keyPair.getPublicKey());
-        call.thenAccept(callResult -> {
-            mHelpers.setPaired(true);
-            future.complete(true);
-        });
-        call.exceptionally(throwable -> {
-            future.complete(false);
-            Log.e(TAG, "pair: ", throwable);
-            return null;
-        });
-        return future;
-    }
-
     public void connect(Service service) {
         mWAMP = new Session();
         mWAMP.addOnJoinListener((session, details) -> {
-            mOnConnectListeners.forEach(sessionConsumer -> sessionConsumer.accept(session));
+            mOnConnectListeners.forEach(listener -> listener.onConnect(session));
         });
         mWAMP.addOnLeaveListener((session, details) -> {
             System.out.println("Left...");
@@ -254,18 +284,25 @@ public class DeskConn {
         });
         String crossbarURL = String.format(Locale.US, "ws://%s:%d/ws", service.getHostIP(),
                 service.getPort());
-        Helpers helpers = new Helpers(mContext);
-        Client client;
-        if (helpers.isPaired()) {
-            Helpers.KeyPair keyPair = mHelpers.getKeyPair();
-            CryptosignAuth auth = new CryptosignAuth(keyPair.getPublicKey(),
-                    keyPair.getPrivateKey(), keyPair.getPublicKey());
-            client = new Client(mWAMP, crossbarURL, service.getRealm(), auth);
-        } else {
-            client = new Client(mWAMP, crossbarURL, service.getRealm());
-        }
-        client.connect().whenComplete((exitInfo, throwable) -> {
-            mOnDisconnectListeners.forEach(Runnable::run);
+
+        isPaired(service).thenAccept(paired -> {
+            Client client;
+            if (paired) {
+                Helpers.KeyPair keyPair = mHelpers.getKeyPair();
+                CryptosignAuth auth = new CryptosignAuth(keyPair.getPublicKey(),
+                        keyPair.getPrivateKey(), keyPair.getPublicKey());
+                client = new Client(mWAMP, crossbarURL, service.getRealm(), auth);
+            } else {
+                client = new Client(mWAMP, crossbarURL, service.getRealm());
+            }
+
+            client.connect().whenComplete((exitInfo, throwable) -> {
+                mOnDisconnectListeners.forEach(OnDisconnectListener::onDisconnect);
+            });
         });
+    }
+
+    public boolean isConnected() {
+        return mWAMP != null && mWAMP.isConnected();
     }
 }

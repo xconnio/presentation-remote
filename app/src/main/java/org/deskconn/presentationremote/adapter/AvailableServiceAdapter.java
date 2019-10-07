@@ -1,10 +1,8 @@
 package org.deskconn.presentationremote.adapter;
 
 import android.app.Activity;
-import android.content.Context;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
 
 import androidx.annotation.NonNull;
@@ -14,47 +12,47 @@ import androidx.appcompat.widget.AppCompatTextView;
 import org.deskconn.deskconn.utils.database.Service;
 import org.deskconn.presentationremote.R;
 
-import java.util.ArrayList;
-import java.util.Map;
+import java.util.List;
 
 public class AvailableServiceAdapter extends BaseAdapter {
 
-    private ViewHolder viewHolder;
+    private ViewHolder mViewHolder;
     private Activity mActivity;
-    private ArrayList<String> mServiceList;
-    private Map<String, Service> serviceHashMap;
+    private List<Service> mAvailableServices;
+    private List<Service> mPairedServices;
 
-    public AvailableServiceAdapter(ArrayList<String> arrayList, Activity activity,
-                                   Map<String, Service> servicesData) {
+    public AvailableServiceAdapter(Activity activity, List<Service> availableServices,
+                                   List<Service> pairedServices) {
         mActivity = activity;
-        mServiceList = arrayList;
-        serviceHashMap = servicesData;
+        mAvailableServices = availableServices;
+        mPairedServices = pairedServices;
     }
 
     @NonNull
     @Override
     public View getView(int position, @Nullable View convertView, @NonNull ViewGroup parent) {
         if (convertView == null) {
-            convertView = mActivity.getLayoutInflater().inflate(R.layout.service_raw, parent, false);
-            viewHolder = new ViewHolder();
-            viewHolder.name = convertView.findViewById(R.id.service_name);
-            convertView.setTag(viewHolder);
+            convertView = mActivity.getLayoutInflater().inflate(R.layout.service_raw, parent,
+                    false);
+            mViewHolder = new ViewHolder();
+            mViewHolder.name = convertView.findViewById(R.id.service_name);
+            convertView.setTag(mViewHolder);
         } else {
-            viewHolder = (ViewHolder) convertView.getTag();
+            mViewHolder = (ViewHolder) convertView.getTag();
         }
-        String ip = mServiceList.get(position);
-        viewHolder.name.setText(serviceHashMap.get(ip).getHostName());
+        Service service = (Service) getItem(position);
+        mViewHolder.name.setText(service.getHostName());
         return convertView;
     }
 
     @Override
     public int getCount() {
-        return mServiceList.size();
+        return mAvailableServices.size();
     }
 
     @Override
     public Object getItem(int i) {
-        return mServiceList.get(i);
+        return mAvailableServices.get(i);
     }
 
     @Override

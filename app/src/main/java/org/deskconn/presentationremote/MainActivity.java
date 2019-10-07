@@ -1,50 +1,44 @@
 package org.deskconn.presentationremote;
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
-
-import android.Manifest;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ListView;
 
+import androidx.appcompat.app.AppCompatActivity;
+
 import org.deskconn.deskconn.utils.DeskConn;
 import org.deskconn.deskconn.utils.database.Service;
 import org.deskconn.presentationremote.adapter.AvailableServiceAdapter;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.function.Consumer;
-
-import io.crossbar.autobahn.wamp.Session;
+import java.util.List;
 
 
 public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener {
 
-    private static final int REQUEST_ACCESS_NETWORK_STATE = 10;
     private static final String TAG = MainActivity.class.getSimpleName();
+
     private DeskConn mDeskConn;
-    private Map<String, Service> mServices;
-    private ListView availableConnectionsList;
-    private ArrayList<String> serviceArrayList;
-    private AvailableServiceAdapter adapter;
+    private List<Service> mAvailableServices;
+    private List<Service> mPairedServices;
+    private AvailableServiceAdapter mAdapter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        serviceArrayList = new ArrayList<>();
-        availableConnectionsList = findViewById(R.id.connections_list);
         mDeskConn = ((AppGlobals) getApplication()).getDeskConn();
-        mServices = new HashMap<>();
-        adapter = new AvailableServiceAdapter(serviceArrayList, MainActivity.this, mServices);
-        availableConnectionsList.setAdapter(adapter);
-        availableConnectionsList.setOnItemClickListener(this);
+        mAvailableServices = new ArrayList<>();
+        mPairedServices = new ArrayList<>();
+        mDeskConn.getPairedServices().thenAccept(pairedServices -> {
+            mPairedServices = pairedServices;
+        });
+        mAdapter = new AvailableServiceAdapter(this, mAvailableServices, mPairedServices);
+        ListView servicesListView = findViewById(R.id.connections_list);
+        servicesListView.setAdapter(mAdapter);
+        servicesListView.setOnItemClickListener(this);
     }
 
     @Override
@@ -56,68 +50,52 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     @Override
     protected void onPause() {
         super.onPause();
-        mDeskConn.stopDiscovery();
         cleanup();
     }
 
     private void findAndConnect() {
-        mDeskConn.addOnServiceFoundListener(this::onServiceFound);
-        mDeskConn.addOnServiceLostListener(this::onServiceLost);
-        mDeskConn.addOnConnectListener(new Consumer<Session>() {
-            @Override
-            public void accept(Session session) {
-
-            }
-        });
+        mAdapter.notifyDataSetChanged();
+        mDeskConn.addOnServiceFoundListener(onServiceFound);
+        mDeskConn.addOnServiceLostListener(onServiceLost);
         mDeskConn.startDiscovery();
     }
 
     private void cleanup() {
-        mDeskConn.removeOnServiceFoundListener(this::onServiceFound);
-        mDeskConn.removeOnServiceLostListener(this::onServiceLost);
+        mDeskConn.removeOnServiceFoundListener(onServiceFound);
+        mDeskConn.removeOnServiceLostListener(onServiceLost);
+        mDeskConn.stopDiscovery();
+        mDeskConn.disconnect();
+        mAvailableServices.clear();
     }
 
-    private void onServiceFound(Service service) {
-        Log.i(TAG, "onServiceFound: Found service " + service.getHostName());
-        Log.i(TAG, "onServiceFound: " + service.getSystemUID());
-        Log.i(TAG, "onServiceFound: Found service " + serviceArrayList);
-        if (!serviceArrayList.contains(service.getHostIP()) && service.getHostIP() != null) {
-            mServices.put(service.getHostIP(), service);
-            serviceArrayList.add(service.getHostIP());
-            new android.os.Handler().postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (adapter != null) {
-                        adapter.notifyDataSetChanged();
-                    }
-                }
-            }, 1000);
-        }
-        Log.i(TAG, "onServiceFound: " + mServices);
-        Log.i(TAG, "onServiceFound: Found service " + serviceArrayList);
-    }
-
-    private void onServiceLost(String serviceIP) {
-        Log.i(TAG, "onServiceLost: Lost " + serviceIP);
-        if (mServices.containsKey(serviceIP)) {
-            mServices.remove(serviceIP);
-            Log.i(TAG, "onServiceLost: Removed " + serviceIP);
-        }
-        if (serviceArrayList.contains(serviceIP)) {
-            serviceArrayList.remove(serviceIP);
-            if (adapter != null) {
-                adapter.notifyDataSetChanged();
+    private boolean removeServiceByIP(String serviceIP) {
+        for (int i = 0; i < mAvailableServices.size(); i++) {
+            Service service = mAvailableServices.get(i);
+            if (serviceIP.equals(service.getHostIP())) {
+                mAvailableServices.remove(i);
+                return true;
             }
         }
+        return false;
     }
+
+    private DeskConn.OnServiceFoundListener onServiceFound = service -> {
+        Log.i(TAG, "onServiceFound: Service found " + service.getHostName());
+        mAvailableServices.add(service);
+        runOnUiThread(() -> mAdapter.notifyDataSetChanged());
+    };
+
+    private DeskConn.OnServiceLostListener onServiceLost = serviceIP -> {
+        Log.i(TAG, "onServiceLost: Lost " + serviceIP);
+        if (removeServiceByIP(serviceIP)) {
+            mAdapter.notifyDataSetChanged();
+            Log.i(TAG, "onServiceLost: Removed " + serviceIP);
+        }
+    };
 
     @Override
     public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
-        String ip = serviceArrayList.get(i);
-        Service service = mServices.get(ip);
-        mDeskConn.connect(service);
-        /**
-         * Proceed with connection here.
-         */
+        Service service = mAvailableServices.get(i);
+        mDeskConn.isPaired(service).thenAccept(System.out::println);
     }
 }
