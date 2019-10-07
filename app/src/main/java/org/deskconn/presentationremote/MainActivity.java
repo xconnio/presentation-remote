@@ -50,7 +50,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     @Override
     protected void onResume() {
         super.onResume();
-        ensurePermissions();
+        findAndConnect();
     }
 
     @Override
@@ -58,23 +58,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         super.onPause();
         mDeskConn.stopDiscovery();
         cleanup();
-    }
-
-    private void ensurePermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_NETWORK_STATE)
-                == PackageManager.PERMISSION_GRANTED) {
-            Log.i(TAG, "ensurePermissions: I have all the permissions");
-            findAndConnect();
-        } else {
-            if (shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_NETWORK_STATE)) {
-                Log.i(TAG, "ensurePermissions: I should probably ask the user");
-            } else {
-                Log.i(TAG, "ensurePermissions: Don't need any permissions");
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.ACCESS_NETWORK_STATE},
-                        REQUEST_ACCESS_NETWORK_STATE);
-            }
-        }
     }
 
     private void findAndConnect() {
@@ -109,7 +92,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                     }
                 }
             }, 1000);
-            adapter.notifyDataSetChanged();
         }
         Log.i(TAG, "onServiceFound: " + mServices);
         Log.i(TAG, "onServiceFound: Found service " + serviceArrayList);
