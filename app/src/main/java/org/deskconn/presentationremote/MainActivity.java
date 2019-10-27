@@ -1,9 +1,8 @@
 package org.deskconn.presentationremote;
 
-import android.Manifest;
+import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -13,7 +12,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
 
 import com.google.android.material.snackbar.Snackbar;
 import com.google.zxing.integration.android.IntentIntegrator;
@@ -24,42 +22,33 @@ import org.deskconn.deskconn.utils.database.Service;
 import org.deskconn.presentationremote.adapter.AvailableServiceAdapter;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 
+import io.crossbar.autobahn.wamp.Session;
 
-public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener {
+
+public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener,
+        DeskConn.ServiceListener {
 
     private static final String TAG = MainActivity.class.getSimpleName();
 
     private DeskConn mDeskConn;
-    private List<Service> mAvailableServices;
-    private List<Service> mPairedServices;
+    private List<Service> mAvailableServices = new ArrayList<>();
+    private List<Service> mPairedServices = new ArrayList<>();
     private AvailableServiceAdapter mAdapter;
-    private IntentIntegrator integrator;
-    private static final int MY_CAMERA_REQUEST_CODE = 100;
-    private Service selectedService = null;
+    private static final int CAMERA_REQUEST_CODE = 100;
+    private Service mSelectedService = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         mDeskConn = ((AppGlobals) getApplication()).getDeskConn();
-        mAvailableServices = new ArrayList<>();
-        mPairedServices = new ArrayList<>();
-        mDeskConn.getPairedServices().thenAccept(pairedServices -> {
-            mPairedServices = pairedServices;
-        });
         mAdapter = new AvailableServiceAdapter(this, mAvailableServices, mPairedServices);
         ListView servicesListView = findViewById(R.id.connections_list);
         servicesListView.setAdapter(mAdapter);
         servicesListView.setOnItemClickListener(this);
-        integrator = new IntentIntegrator(this);
-        integrator.setDesiredBarcodeFormats(IntentIntegrator.ALL_CODE_TYPES);
-        integrator.setPrompt("Scan a qrcode");
-        integrator.setOrientationLocked(true);
-        integrator.setCameraId(0);  // Use a specific camera of the device
-        integrator.setBeepEnabled(false);
+        mDeskConn.getPairedServices().thenAccept(pairedServices -> mPairedServices = pairedServices);
     }
 
     @Override
@@ -75,48 +64,33 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == MY_CAMERA_REQUEST_CODE) {
+        if (requestCode == CAMERA_REQUEST_CODE) {
             if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 Snackbar.make(findViewById(android.R.id.content), "Permission granted",
                         Snackbar.LENGTH_SHORT).show();
-                new android.os.Handler().postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        integrator.initiateScan(); // `this` is the current Activity
-                    }
-                }, 2000);
+                scanQRCode(MainActivity.this);
             } else {
-                Snackbar.make(findViewById(android.R.id.content), "Permission denied, Permission required!",
-                        Snackbar.LENGTH_SHORT).show();
+                Snackbar.make(findViewById(android.R.id.content),
+                        "Permission denied, Permission required!", Snackbar.LENGTH_SHORT).show();
             }
         }
     }
 
     private void findAndConnect() {
         mAdapter.notifyDataSetChanged();
-        mDeskConn.addOnServiceFoundListener(onServiceFound);
-        mDeskConn.addOnServiceLostListener(onServiceLost);
-        mDeskConn.addOnConnectListener(session -> {
-            Log.i(TAG, "findAndConnect: ");
-            if (ActivityCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA)
-                    != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.CAMERA},
-                        MY_CAMERA_REQUEST_CODE);
-            } else {
-                integrator.initiateScan(); // `this` is the current Activity
-            }
-        });
+        mDeskConn.addServiceListener(this);
         mDeskConn.startDiscovery();
     }
 
     private void cleanup() {
-        mDeskConn.removeOnServiceFoundListener(onServiceFound);
-        mDeskConn.removeOnServiceLostListener(onServiceLost);
+        mDeskConn.removeServiceListener(this);
         mDeskConn.stopDiscovery();
         mDeskConn.disconnect();
         mAvailableServices.clear();
+        mAdapter.notifyDataSetChanged();
     }
 
     private boolean removeServiceByIP(String serviceIP) {
@@ -130,19 +104,15 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         return false;
     }
 
-    private DeskConn.OnServiceFoundListener onServiceFound = service -> {
-        Log.i(TAG, "onServiceFound: Service found " + service.getHostName());
-        mAvailableServices.add(service);
-        runOnUiThread(() -> mAdapter.notifyDataSetChanged());
-    };
-
-    private DeskConn.OnServiceLostListener onServiceLost = serviceIP -> {
-        Log.i(TAG, "onServiceLost: Lost " + serviceIP);
-        if (removeServiceByIP(serviceIP)) {
-            mAdapter.notifyDataSetChanged();
-            Log.i(TAG, "onServiceLost: Removed " + serviceIP);
-        }
-    };
+    private void scanQRCode(Activity activity) {
+        IntentIntegrator integrator = new IntentIntegrator(activity);
+        integrator.setDesiredBarcodeFormats(IntentIntegrator.ALL_CODE_TYPES);
+        integrator.setPrompt("Scan deskconn pairing code");
+        integrator.setOrientationLocked(true);
+        integrator.setCameraId(0);
+        integrator.setBeepEnabled(false);
+        integrator.initiateScan();
+    }
 
     @Override
     public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
@@ -151,9 +121,8 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             if (paired) {
                 mDeskConn.connect(service);
             } else {
-                mDeskConn.connect(service);
-                // FIXME: Show a dialog to put the pairing code ==> runOnUiThread()
-                // FIXME: Once we have the code call mDeskConn.pair()
+                mSelectedService = service;
+                scanQRCode(MainActivity.this);
             }
         });
     }
@@ -165,12 +134,41 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             if (result.getContents() == null) {
                 Toast.makeText(this, "Cancelled", Toast.LENGTH_LONG).show();
             } else {
-                if (selectedService != null) {
-                    mDeskConn.pair(selectedService, result.getContents());
+                if (mSelectedService != null) {
+                    mDeskConn.connect(mSelectedService, result.getContents());
                 }
             }
         } else {
             super.onActivityResult(requestCode, resultCode, data);
         }
+    }
+
+    @Override
+    public void onFound(String service) {
+
+    }
+
+    @Override
+    public void onResolved(Service service) {
+        mAvailableServices.add(service);
+        runOnUiThread(() -> mAdapter.notifyDataSetChanged());
+    }
+
+    @Override
+    public void onLost(String hostIP) {
+        if (removeServiceByIP(hostIP)) {
+            mAdapter.notifyDataSetChanged();
+            Log.i(TAG, "onServiceLost: Removed " + hostIP);
+        }
+    }
+
+    @Override
+    public void onConnect(Session session) {
+        System.out.println("Connected...");
+    }
+
+    @Override
+    public void onDisconnect() {
+
     }
 }

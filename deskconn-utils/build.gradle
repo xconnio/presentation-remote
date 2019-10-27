@@ -28,11 +28,14 @@ android {
 }
 
 dependencies {
-    api 'io.crossbar.autobahn:autobahn-android:18.5.2'
+//    api 'io.crossbar.autobahn:autobahn-android:19.3.1'
     implementation 'androidx.appcompat:appcompat:1.1.0'
     implementation "androidx.preference:preference:1.1.0"
-    implementation "androidx.room:room-runtime:2.1.0"
-    annotationProcessor "androidx.room:room-compiler:2.1.0"
+    implementation "androidx.room:room-runtime:2.2.1"
+    annotationProcessor "androidx.room:room-compiler:2.2.1"
     implementation 'org.jmdns:jmdns:3.5.5'
-    implementation 'com.github.joshjdevl.libsodiumjni:libsodium-jni-aar:2.0.1'
+    implementation 'com.github.joshjdevl.libsodiumjni:libsodium-jni-aar:2.0.2'
+    api files('/home/om26er/Desktop/autobahn-android-debug.aar')
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-cbor:2.9.8'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.9.8'
 }

@@ -1,17 +1,22 @@
 package org.deskconn.deskconn.utils;
 
 
+import android.Manifest;
+import android.app.Activity;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 
+import androidx.core.app.ActivityCompat;
 import androidx.preference.PreferenceManager;
 
+import static android.content.pm.PackageManager.PERMISSION_GRANTED;
 
-class Helpers extends ContextWrapper {
+
+public class Helpers extends ContextWrapper {
 
     private static final String KEY_PAIR_CREATED = "key_pair_created";
-    private static final String KEY_PAIRED = "key_paired";
     private static final String KEY_PUBLIC = "key_public";
     private static final String KEY_SECRET = "key_secret";
 
@@ -20,14 +25,6 @@ class Helpers extends ContextWrapper {
     public Helpers(Context base) {
         super(base);
         mPrefs = PreferenceManager.getDefaultSharedPreferences(this);
-    }
-
-    public boolean isPaired() {
-        return mPrefs.getBoolean(KEY_PAIRED, false);
-    }
-
-    public void setPaired(boolean isFirstRun) {
-        mPrefs.edit().putBoolean(KEY_PAIRED, isFirstRun).apply();
     }
 
     public void saveKeys(String publicKey, String privateKey) {
@@ -62,5 +59,9 @@ class Helpers extends ContextWrapper {
         String getPrivateKey() {
             return mPrivateKey;
         }
+    }
+
+    public static boolean hasPermission(Activity activity, String type) {
+        return ActivityCompat.checkSelfPermission(activity, type) == PERMISSION_GRANTED;
     }
 }
